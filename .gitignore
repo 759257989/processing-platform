@@ -1,0 +1,51 @@
+cat > .gitignore <<'EOF'
+# Binaries
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test artifacts
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# Build / temp
+dist/
+tmp/
+.cache/
+
+# Go workspaces
+go.work
+go.work.sum
+
+# Editor & OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Environment / secrets — never commit these
+.env
+.env.local
+*.pem
+*.key
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+!*.tfvars.example
+
+# Node / web
+web/node_modules/
+web/dist/
+
+# Helm
+deploy/helm/**/charts/*.tgz
+EOF

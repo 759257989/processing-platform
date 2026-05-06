@@ -1,0 +1,54 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - gosec
+    - revive
+    - gocritic
+    - misspell
+    - unused
+    - ineffassign
+    - bodyclose
+    - rowserrcheck
+    - sqlclosecheck
+    - nilerr
+
+  settings:
+    errcheck:
+      exclude-functions:
+        - (io.Closer).Close
+        - fmt.Print
+        - fmt.Println
+        - fmt.Printf
+
+    gosec:
+      excludes:
+        - G104
+        - G304
+
+    revive:
+      rules:
+        - name: exported
+        - name: var-naming
+        - name: package-comments
+        - name: indent-error-flow
+        - name: superfluous-else
+        - name: error-return
+        - name: error-naming
+
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+          - revive
