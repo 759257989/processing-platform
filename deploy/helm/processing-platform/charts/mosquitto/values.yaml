@@ -1,0 +1,12 @@
+image:
+  repository: eclipse-mosquitto
+  tag: "2.0.18"
+  pullPolicy: IfNotPresent
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+# Local-only setting. NEVER true in production.
+allowAnonymous: true

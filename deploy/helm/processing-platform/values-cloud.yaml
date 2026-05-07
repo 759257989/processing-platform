@@ -1,0 +1,32 @@
+# values-cloud.yaml
+# Settings for the cloud (AWS) deployment in Stage 6.
+# Most infra dependencies are DISABLED here because we use the AWS-managed
+# equivalents (RDS, ElastiCache, MSK, S3) instead of running them in-cluster.
+
+global:
+  environment: cloud
+
+# Disable in-cluster Postgres — we use RDS instead.
+postgresql:
+  enabled: false
+
+# Disable in-cluster Redis — we use ElastiCache instead.
+redis:
+  enabled: false
+
+# Disable in-cluster Kafka — we use MSK instead.
+kafka:
+  enabled: false
+
+# Disable in-cluster MinIO — we use S3 instead.
+minio:
+  enabled: false
+
+# Mosquitto stays in-cluster: AWS has IoT Core but it costs more and we
+# already have a working Mosquitto chart.
+mosquitto:
+  enabled: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi

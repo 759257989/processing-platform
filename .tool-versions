@@ -1,0 +1,4 @@
+golang 1.22.5
+kubectl 1.29.4
+helm 3.14.4
+kind 0.22.0

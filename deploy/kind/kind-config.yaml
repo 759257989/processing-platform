@@ -1,0 +1,32 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: processing-platform
+
+# Three nodes: one control-plane (the brain) and two workers (where pods run).
+# Why three: lets us test pod anti-affinity (spreading replicas across nodes)
+# and node-failure scenarios in later stages. With one node, you can't
+# meaningfully test "what if a node dies?"
+nodes:
+  - role: control-plane
+    # Expose the ingress-nginx ports on the host so we can reach the API
+    # at http://localhost later via the ingress controller.
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 80
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        protocol: TCP
+    # Label the node so ingress-nginx knows it can schedule onto it.
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+  - role: worker
+  - role: worker
+
+# Use a recent Kubernetes version. Kept in sync with .tool-versions.
+# kindest/node images are versioned by the K8s version they boot.
+# Pin to a specific tag for reproducibility.

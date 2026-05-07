@@ -1,0 +1,18 @@
+dependencies:
+- name: postgresql
+  repository: https://charts.bitnami.com/bitnami
+  version: 15.5.16
+- name: redis
+  repository: https://charts.bitnami.com/bitnami
+  version: 19.5.5
+- name: kafka
+  repository: https://charts.bitnami.com/bitnami
+  version: 29.3.4
+- name: minio
+  repository: https://charts.bitnami.com/bitnami
+  version: 14.6.5
+- name: mosquitto
+  repository: file://./charts/mosquitto
+  version: 0.1.0
+digest: sha256:6c761a2621ca51ac89554dd6802a8dfcf6a6eec4576ed37bac8e2793b1230fb6
+generated: "2026-05-06T15:35:13.189972-07:00"

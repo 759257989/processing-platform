@@ -1,0 +1,102 @@
+# values-local.yaml
+# Settings for the local kind cluster on a laptop.
+# Aim: smallest possible footprint that still exercises every component.
+
+global:
+  environment: local
+  # 关键:全局把 Bitnami 镜像源改成 bitnamilegacy。
+  # Bitnami 在 2025-08 把旧 tag 从 bitnami/ 下架,迁到了 bitnamilegacy/(免费)。
+  imageRegistry: ""
+  security:
+    allowInsecureImages: true
+
+# ---- PostgreSQL ----
+postgresql:
+  enabled: true
+  image:
+    repository: bitnamilegacy/postgresql
+  auth:
+    postgresPassword: "localdev"
+    database: "platform"
+  primary:
+    persistence:
+      enabled: true
+      size: 1Gi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+
+# ---- Redis ----
+redis:
+  enabled: true
+  image:
+    repository: bitnamilegacy/redis
+  architecture: standalone
+  auth:
+    enabled: false
+  master:
+    persistence:
+      enabled: false
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+
+# ---- Kafka ----
+kafka:
+  enabled: true
+  image:
+    repository: bitnamilegacy/kafka
+  # Kafka chart 还需要这两个辅助镜像
+  volumePermissions:
+    image:
+      repository: bitnamilegacy/os-shell
+  kraft:
+    enabled: true
+  controller:
+    replicaCount: 3
+    persistence:
+      enabled: true
+      size: 1Gi
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+  listeners:
+    client:
+      protocol: PLAINTEXT
+    controller:
+      protocol: PLAINTEXT
+    interbroker:
+      protocol: PLAINTEXT
+    external:
+      protocol: PLAINTEXT
+
+# ---- MinIO ----
+minio:
+  enabled: true
+  image:
+    repository: bitnamilegacy/minio
+  clientImage:
+    repository: bitnamilegacy/minio-client
+  mode: standalone
+  auth:
+    rootUser: "minio"
+    rootPassword: "miniodev"
+  defaultBuckets: "platform-bucket"
+  persistence:
+    enabled: true
+    size: 1Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+
+# ---- Mosquitto (custom subchart, eclipse-mosquitto image — no change needed) ----
+mosquitto:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi

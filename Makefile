@@ -69,11 +69,14 @@ docker-build-all: ## Build Docker images for ALL binaries.
 # These are placeholders; they print a friendly message and exit successfully
 # so a recruiter typing `make up` doesn't see a confusing error.
 
-up: ## (Stage 1) Bring up the local kind cluster + dependencies.
-	@echo "Not yet implemented — see stages.md, Stage 1."
+.PHONY: up
+up: ## bring up the local kind cluster + all infrastructure
+	./scripts/bootstrap-local.sh
+	./scripts/install-infra.sh   # we'll create this in Step 12
 
-down: ## (Stage 1) Tear down the local cluster.
-	@echo "Not yet implemented — see stages.md, Stage 1."
+.PHONY: down
+down: ## tear down the local kind cluster (destroys all data)
+	kind delete cluster --name=processing-platform
 
 seed: ## (Stage 2) Seed sample devices into Postgres.
 	@echo "Not yet implemented — see stages.md, Stage 2."
@@ -94,3 +97,35 @@ dlq: ## (Stage 3) Print contents of the DLQ topic.
 
 clean: ## Remove build artifacts.
 	rm -rf $(BIN_DIR)
+
+.PHONY: status
+status: ## show cluster nodes and all pods
+	@kubectl get nodes
+	@echo
+	@kubectl get pods -A
+
+
+.PHONY: sync-migrations
+sync-migrations: ## copy migrations/*.sql into the Helm chart files dir
+	rm -f deploy/helm/processing-platform/files/migrations/*.sql
+	cp migrations/*.sql deploy/helm/processing-platform/files/migrations/
+
+.PHONY: psql
+psql: ## open a psql shell against the cluster Postgres
+	kubectl run psql --rm -it --restart=Never \
+		--image=postgres:16-alpine \
+		--env=PGPASSWORD=localdev \
+		-- psql -h pp-postgresql -U postgres -d platform
+
+
+.PHONY: logs-postgres
+logs-postgres: ## tail Postgres logs
+	kubectl logs -f pp-postgresql-0
+
+.PHONY: logs-kafka
+logs-kafka: ## tail Kafka logs (broker 0)
+	kubectl logs -f pp-kafka-controller-0
+
+.PHONY: logs-mosquitto
+logs-mosquitto: ## tail Mosquitto logs
+	kubectl logs -f -l app=mosquitto

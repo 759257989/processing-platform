@@ -1,0 +1,3 @@
+-- Reverse of 000001_init.up.sql. We don't actually drop pgcrypto
+-- because other schemas might depend on it; leaving the extension
+-- in place is harmless.

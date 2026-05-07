@@ -1,0 +1,50 @@
+{{- if .Values.postgresql.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-migrate
+  annotations:
+    # Run before install AND before each upgrade.
+    "helm.sh/hook": post-install,pre-upgrade
+    # Allow the job to live for inspection after success;
+    # delete the previous job when a new install happens.
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      name: db-migrate
+    spec:
+      restartPolicy: Never
+      # We bake migrations into a tiny image. For local dev, an init container
+      # mounts the SQL files via a configmap; for cloud, Stage 6 will use a
+      # baked image. To keep Stage 1 simple, we use the upstream migrate image
+      # and pull the SQL from a configmap.
+      initContainers:
+        - name: wait-for-db
+          image: postgres:16-alpine
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h {{ .Release.Name }}-postgresql -U postgres; do
+                echo "waiting for postgres..."
+                sleep 2
+              done
+      containers:
+        - name: migrate
+          image: migrate/migrate:v4.17.0
+          command:
+            - migrate
+            - -path=/migrations
+            - -database=postgres://postgres:{{ .Values.postgresql.auth.postgresPassword }}@{{ .Release.Name }}-postgresql:5432/{{ .Values.postgresql.auth.database }}?sslmode=disable
+            - up
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
+      volumes:
+        - name: migrations
+          configMap:
+            name: db-migrations
+{{- end }}
