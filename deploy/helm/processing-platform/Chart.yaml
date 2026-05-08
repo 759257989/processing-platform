@@ -32,3 +32,13 @@ dependencies:
     version: 0.1.0
     repository: "file://./charts/mosquitto"   # local subchart we write in Step 10
     condition: mosquitto.enabled
+  
+  - name: api
+    version: 0.1.0
+    repository: "file://./charts/api"
+    condition: api.enabled
+
+  - name: worker-standard
+    version: 0.1.0
+    repository: "file://./charts/worker-standard"
+    condition: worker-standard.enabled

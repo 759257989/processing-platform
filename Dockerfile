@@ -4,7 +4,7 @@
 # ---------- Stage 1: builder ----------
 # We use the official Go image to compile the binary.
 # `alpine` keeps the builder small; the final image doesn't depend on it.
-FROM golang:1.22-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 # BINARY is a build-time variable selecting which cmd/<name> to build.
 # Pass with: docker build --build-arg BINARY=api .

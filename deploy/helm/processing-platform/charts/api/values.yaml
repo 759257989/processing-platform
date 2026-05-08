@@ -1,0 +1,23 @@
+image:
+  repository: processing-platform/api
+  tag: "dev"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+service:
+  port: 8080
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+env:
+  POSTGRES_DSN: "postgres://postgres:localdev@pp-postgresql:5432/platform?sslmode=disable"
+  REDIS_ADDR: "pp-redis-master:6379"
+  KAFKA_BROKERS: "pp-kafka-controller-headless:9092"
+  LISTEN_ADDR: ":8080"

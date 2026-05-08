@@ -100,3 +100,9 @@ mosquitto:
     requests:
       cpu: 50m
       memory: 64Mi
+
+api:
+  enabled: true
+
+worker-standard:
+  enabled: true
