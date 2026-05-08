@@ -5,29 +5,71 @@
 package db
 
 import (
+	"time"
+
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type Alert struct {
+	ID           uuid.UUID `json:"id"`
+	DeviceID     string    `json:"device_id"`
+	Severity     string    `json:"severity"`
+	Message      string    `json:"message"`
+	Payload      []byte    `json:"payload"`
+	Acknowledged bool      `json:"acknowledged"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+type CommandAudit struct {
+	ID         uuid.UUID `json:"id"`
+	DeviceID   string    `json:"device_id"`
+	Command    string    `json:"command"`
+	Arguments  []byte    `json:"arguments"`
+	Result     string    `json:"result"`
+	Response   []byte    `json:"response"`
+	DurationMs int32     `json:"duration_ms"`
+	ExecutedAt time.Time `json:"executed_at"`
+}
+
 type Device struct {
-	ID        string             `json:"id"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID              string     `json:"id"`
+	CreatedAt       time.Time  `json:"created_at"`
+	LastSeenAt      *time.Time `json:"last_seen_at"`
+	FirmwareVersion *string    `json:"firmware_version"`
+}
+
+type DeviceMetric struct {
+	ID          uuid.UUID `json:"id"`
+	DeviceID    string    `json:"device_id"`
+	MetricAt    time.Time `json:"metric_at"`
+	AvgValue    float64   `json:"avg_value"`
+	SampleCount int32     `json:"sample_count"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type FirmwareHistory struct {
+	ID            uuid.UUID `json:"id"`
+	DeviceID      string    `json:"device_id"`
+	TargetVersion string    `json:"target_version"`
+	State         string    `json:"state"`
+	FailureReason *string   `json:"failure_reason"`
+	AttemptedAt   time.Time `json:"attempted_at"`
 }
 
 type Job struct {
-	ID             uuid.UUID          `json:"id"`
-	Type           string             `json:"type"`
-	Tier           string             `json:"tier"`
-	DeviceID       string             `json:"device_id"`
-	State          string             `json:"state"`
-	Payload        []byte             `json:"payload"`
-	IdempotencyKey string             `json:"idempotency_key"`
-	Attempts       int32              `json:"attempts"`
-	MaxAttempts    int32              `json:"max_attempts"`
-	LastError      *string            `json:"last_error"`
-	HeartbeatAt    pgtype.Timestamptz `json:"heartbeat_at"`
-	StartedAt      pgtype.Timestamptz `json:"started_at"`
-	FinishedAt     pgtype.Timestamptz `json:"finished_at"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	ID             uuid.UUID  `json:"id"`
+	Type           string     `json:"type"`
+	Tier           string     `json:"tier"`
+	DeviceID       string     `json:"device_id"`
+	State          string     `json:"state"`
+	Payload        []byte     `json:"payload"`
+	IdempotencyKey string     `json:"idempotency_key"`
+	Attempts       int32      `json:"attempts"`
+	MaxAttempts    int32      `json:"max_attempts"`
+	LastError      *string    `json:"last_error"`
+	HeartbeatAt    *time.Time `json:"heartbeat_at"`
+	StartedAt      *time.Time `json:"started_at"`
+	FinishedAt     *time.Time `json:"finished_at"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 }

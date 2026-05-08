@@ -131,9 +131,11 @@ docker-build-worker-standard: ## build the worker-standard docker image
 	docker build --build-arg BINARY=worker-standard -t processing-platform/worker-standard:dev .
 
 .PHONY: kind-load
-kind-load: docker-build-api docker-build-worker-standard ## build images and load into kind
-	kind load docker-image processing-platform/api:dev --name=processing-platform
-	kind load docker-image processing-platform/worker-standard:dev --name=processing-platform
+kind-load: docker-build-api docker-build-workers ## build all images and load into kind
+	kind load docker-image processing-platform/api:dev              --name=processing-platform
+	kind load docker-image processing-platform/worker-realtime:dev  --name=processing-platform
+	kind load docker-image processing-platform/worker-standard:dev  --name=processing-platform
+	kind load docker-image processing-platform/worker-bulk:dev      --name=processing-platform
 
 
 .PHONY: seed
@@ -157,3 +159,20 @@ submit-job: ## submit a sample telemetry job (requires `make port-forward-api` r
 .PHONY: get-job
 get-job: ## fetch a job by id; usage: make get-job ID=<uuid>
 	@curl -s http://localhost:8080/jobs/$(ID) | jq .
+
+
+.PHONY: docker-build-workers
+docker-build-workers: ## build all three worker images
+	docker build --build-arg BINARY=worker-realtime -t processing-platform/worker-realtime:dev .
+	docker build --build-arg BINARY=worker-standard -t processing-platform/worker-standard:dev .
+	docker build --build-arg BINARY=worker-bulk     -t processing-platform/worker-bulk:dev .
+
+.PHONY: kind-load-workers
+kind-load-workers: docker-build-workers
+	kind load docker-image processing-platform/worker-realtime:dev --name=processing-platform
+	kind load docker-image processing-platform/worker-standard:dev --name=processing-platform
+	kind load docker-image processing-platform/worker-bulk:dev     --name=processing-platform
+
+.PHONY: docker-build-retry-router
+docker-build-retry-router:
+	docker build --build-arg BINARY=retry-router -t processing-platform/retry-router:dev .

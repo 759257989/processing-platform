@@ -106,3 +106,11 @@ api:
 
 worker-standard:
   enabled: true
+
+worker-realtime:
+  enabled: true
+worker-bulk:
+  enabled: true
+
+retry-router:
+  enabled: true

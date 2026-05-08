@@ -1,0 +1,17 @@
+image:
+  repository: processing-platform/retry-router
+  tag: "dev"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+env:
+  KAFKA_BROKERS: "pp-kafka-controller-headless:9092"

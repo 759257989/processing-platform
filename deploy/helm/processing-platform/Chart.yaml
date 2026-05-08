@@ -42,3 +42,18 @@ dependencies:
     version: 0.1.0
     repository: "file://./charts/worker-standard"
     condition: worker-standard.enabled
+  
+  - name: worker-realtime
+    version: 0.1.0
+    repository: "file://./charts/worker-realtime"
+    condition: worker-realtime.enabled
+
+  - name: worker-bulk
+    version: 0.1.0
+    repository: "file://./charts/worker-bulk"
+    condition: worker-bulk.enabled
+
+  - name: retry-router
+    version: 0.1.0
+    repository: "file://./charts/retry-router"
+    condition: retry-router.enabled

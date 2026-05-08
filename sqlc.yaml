@@ -13,9 +13,18 @@ sql:
         emit_interface: true
         emit_pointers_for_null_types: true
         overrides:
-          # Map Postgres uuid columns to google/uuid.UUID
-          # instead of the default pgtype.UUID. Keeps types consistent
-          # between handlers (which generate UUIDs with uuid.New()) and
-          # the DB layer.
+          # uuid → google/uuid.UUID(Stage 2 已经加过)
           - db_type: "uuid"
             go_type: "github.com/google/uuid.UUID"
+
+          # timestamptz NOT NULL → time.Time
+          - db_type: "timestamptz"
+            go_type: "time.Time"
+
+          # timestamptz NULL → *time.Time(用于 last_seen_at、heartbeat_at 等可空列)
+          - db_type: "timestamptz"
+            nullable: true
+            go_type:
+              import: "time"
+              type: "Time"
+              pointer: true

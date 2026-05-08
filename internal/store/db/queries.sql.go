@@ -7,6 +7,7 @@ package db
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -14,7 +15,7 @@ import (
 const createDevice = `-- name: CreateDevice :one
 INSERT INTO devices (id) VALUES ($1)
 ON CONFLICT (id) DO NOTHING
-RETURNING id, created_at
+RETURNING id, created_at, last_seen_at, firmware_version
 `
 
 // Create a device row. ON CONFLICT DO NOTHING means submitting the same
@@ -22,7 +23,12 @@ RETURNING id, created_at
 func (q *Queries) CreateDevice(ctx context.Context, id string) (Device, error) {
 	row := q.db.QueryRow(ctx, createDevice, id)
 	var i Device
-	err := row.Scan(&i.ID, &i.CreatedAt)
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.LastSeenAt,
+		&i.FirmwareVersion,
+	)
 	return i, err
 }
 
@@ -72,13 +78,37 @@ func (q *Queries) CreateJob(ctx context.Context, arg CreateJobParams) (Job, erro
 }
 
 const getDevice = `-- name: GetDevice :one
-SELECT id, created_at FROM devices WHERE id = $1
+SELECT id, created_at, last_seen_at, firmware_version FROM devices WHERE id = $1
 `
 
 func (q *Queries) GetDevice(ctx context.Context, id string) (Device, error) {
 	row := q.db.QueryRow(ctx, getDevice, id)
 	var i Device
-	err := row.Scan(&i.ID, &i.CreatedAt)
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.LastSeenAt,
+		&i.FirmwareVersion,
+	)
+	return i, err
+}
+
+const getDeviceForHealthCheck = `-- name: GetDeviceForHealthCheck :one
+SELECT id, last_seen_at, firmware_version
+FROM devices WHERE id = $1
+`
+
+type GetDeviceForHealthCheckRow struct {
+	ID              string     `json:"id"`
+	LastSeenAt      *time.Time `json:"last_seen_at"`
+	FirmwareVersion *string    `json:"firmware_version"`
+}
+
+// Health check: read the columns the handler decides on.
+func (q *Queries) GetDeviceForHealthCheck(ctx context.Context, id string) (GetDeviceForHealthCheckRow, error) {
+	row := q.db.QueryRow(ctx, getDeviceForHealthCheck, id)
+	var i GetDeviceForHealthCheckRow
+	err := row.Scan(&i.ID, &i.LastSeenAt, &i.FirmwareVersion)
 	return i, err
 }
 
@@ -170,6 +200,172 @@ func (q *Queries) IncrementJobAttempts(ctx context.Context, id uuid.UUID) (Job, 
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const insertAlert = `-- name: InsertAlert :one
+INSERT INTO alerts (device_id, severity, message, payload)
+VALUES ($1, $2, $3, $4)
+RETURNING id, device_id, severity, message, payload, acknowledged, created_at
+`
+
+type InsertAlertParams struct {
+	DeviceID string `json:"device_id"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+	Payload  []byte `json:"payload"`
+}
+
+// Alert: record an alert row.
+func (q *Queries) InsertAlert(ctx context.Context, arg InsertAlertParams) (Alert, error) {
+	row := q.db.QueryRow(ctx, insertAlert,
+		arg.DeviceID,
+		arg.Severity,
+		arg.Message,
+		arg.Payload,
+	)
+	var i Alert
+	err := row.Scan(
+		&i.ID,
+		&i.DeviceID,
+		&i.Severity,
+		&i.Message,
+		&i.Payload,
+		&i.Acknowledged,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const insertCommandAudit = `-- name: InsertCommandAudit :one
+INSERT INTO command_audit (device_id, command, arguments, result, response, duration_ms)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, device_id, command, arguments, result, response, duration_ms, executed_at
+`
+
+type InsertCommandAuditParams struct {
+	DeviceID   string `json:"device_id"`
+	Command    string `json:"command"`
+	Arguments  []byte `json:"arguments"`
+	Result     string `json:"result"`
+	Response   []byte `json:"response"`
+	DurationMs int32  `json:"duration_ms"`
+}
+
+// Remote command: audit log entry.
+func (q *Queries) InsertCommandAudit(ctx context.Context, arg InsertCommandAuditParams) (CommandAudit, error) {
+	row := q.db.QueryRow(ctx, insertCommandAudit,
+		arg.DeviceID,
+		arg.Command,
+		arg.Arguments,
+		arg.Result,
+		arg.Response,
+		arg.DurationMs,
+	)
+	var i CommandAudit
+	err := row.Scan(
+		&i.ID,
+		&i.DeviceID,
+		&i.Command,
+		&i.Arguments,
+		&i.Result,
+		&i.Response,
+		&i.DurationMs,
+		&i.ExecutedAt,
+	)
+	return i, err
+}
+
+const insertDeviceMetric = `-- name: InsertDeviceMetric :one
+
+INSERT INTO device_metrics (device_id, metric_at, avg_value, sample_count)
+VALUES ($1, $2, $3, $4)
+RETURNING id, device_id, metric_at, avg_value, sample_count, created_at
+`
+
+type InsertDeviceMetricParams struct {
+	DeviceID    string    `json:"device_id"`
+	MetricAt    time.Time `json:"metric_at"`
+	AvgValue    float64   `json:"avg_value"`
+	SampleCount int32     `json:"sample_count"`
+}
+
+// ===== Phase 1 additions =====
+// Telemetry: insert one aggregate row.
+func (q *Queries) InsertDeviceMetric(ctx context.Context, arg InsertDeviceMetricParams) (DeviceMetric, error) {
+	row := q.db.QueryRow(ctx, insertDeviceMetric,
+		arg.DeviceID,
+		arg.MetricAt,
+		arg.AvgValue,
+		arg.SampleCount,
+	)
+	var i DeviceMetric
+	err := row.Scan(
+		&i.ID,
+		&i.DeviceID,
+		&i.MetricAt,
+		&i.AvgValue,
+		&i.SampleCount,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const insertFirmwareAttempt = `-- name: InsertFirmwareAttempt :one
+INSERT INTO firmware_history (device_id, target_version, state, failure_reason)
+VALUES ($1, $2, $3, $4)
+RETURNING id, device_id, target_version, state, failure_reason, attempted_at
+`
+
+type InsertFirmwareAttemptParams struct {
+	DeviceID      string  `json:"device_id"`
+	TargetVersion string  `json:"target_version"`
+	State         string  `json:"state"`
+	FailureReason *string `json:"failure_reason"`
+}
+
+// Firmware: record an attempt. Always inserts; we keep history.
+func (q *Queries) InsertFirmwareAttempt(ctx context.Context, arg InsertFirmwareAttemptParams) (FirmwareHistory, error) {
+	row := q.db.QueryRow(ctx, insertFirmwareAttempt,
+		arg.DeviceID,
+		arg.TargetVersion,
+		arg.State,
+		arg.FailureReason,
+	)
+	var i FirmwareHistory
+	err := row.Scan(
+		&i.ID,
+		&i.DeviceID,
+		&i.TargetVersion,
+		&i.State,
+		&i.FailureReason,
+		&i.AttemptedAt,
+	)
+	return i, err
+}
+
+const touchDevice = `-- name: TouchDevice :exec
+UPDATE devices SET last_seen_at = NOW() WHERE id = $1
+`
+
+// Health check: bump last_seen.
+func (q *Queries) TouchDevice(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, touchDevice, id)
+	return err
+}
+
+const updateDeviceFirmware = `-- name: UpdateDeviceFirmware :exec
+UPDATE devices SET firmware_version = $2 WHERE id = $1
+`
+
+type UpdateDeviceFirmwareParams struct {
+	ID              string  `json:"id"`
+	FirmwareVersion *string `json:"firmware_version"`
+}
+
+// Update the device's recorded firmware version after a successful update.
+func (q *Queries) UpdateDeviceFirmware(ctx context.Context, arg UpdateDeviceFirmwareParams) error {
+	_, err := q.db.Exec(ctx, updateDeviceFirmware, arg.ID, arg.FirmwareVersion)
+	return err
 }
 
 const updateJobState = `-- name: UpdateJobState :one

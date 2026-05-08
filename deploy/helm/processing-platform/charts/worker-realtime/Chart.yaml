@@ -1,0 +1,6 @@
+apiVersion: v2
+name: worker-realtime
+description: realtime-tier worker for the processing platform
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

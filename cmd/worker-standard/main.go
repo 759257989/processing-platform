@@ -1,129 +1,111 @@
-// cmd/worker-standard: consumes the jobs.standard Kafka topic and
-// processes each message. For Stage 2 we only handle TELEMETRY_PROCESSING,
-// which we simulate as a 50–250ms operation that always succeeds.
+// cmd/worker-standard: standard-tier worker. Consumes jobs.standard and
+// dispatches each message through the handler registry.
+//
+// Identical to worker-realtime and worker-bulk except for three constants:
+// topic, group ID, and allowed tier.
 package main
 
 import (
-	"context"
-	"encoding/json"
-	"errors"
-	"log/slog"
-	"math/rand/v2"
-	"os"
-	"os/signal"
-	"strings"
-	"syscall"
-	"time"
+    "context"
+    "log/slog"
+    "net/http"
+    "os"
+    "os/signal"
+    "strings"
+    "syscall"
 
-	"github.com/google/uuid"
-
-	"github.com/759257989/processing-platform/internal/jobs"
-	"github.com/759257989/processing-platform/internal/kafka"
-	"github.com/759257989/processing-platform/internal/store"
-	"github.com/759257989/processing-platform/internal/store/db"
+    "github.com/759257989/processing-platform/internal/handlers"
+    "github.com/759257989/processing-platform/internal/jobs"
+    "github.com/759257989/processing-platform/internal/kafka"
+    "github.com/759257989/processing-platform/internal/mockclients"
+    "github.com/759257989/processing-platform/internal/store"
+    "github.com/759257989/processing-platform/internal/worker"
 )
 
 const (
-	topic   = "jobs.standard"
-	groupID = "worker-standard"
+    topic       = "jobs.standard"
+    groupID     = "worker-standard"
+    allowedTier = jobs.TierStandard
 )
 
-type kafkaJobMsg struct {
-	JobID    string          `json:"job_id"`
-	Type     string          `json:"type"`
-	Tier     string          `json:"tier"`
-	DeviceID string          `json:"device_id"`
-	Payload  json.RawMessage `json:"payload"`
-}
-
 func main() {
-	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	slog.SetDefault(log)
+    log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+    slog.SetDefault(log)
 
-	pgDSN := mustEnv("POSTGRES_DSN")
-	brokers := strings.Split(mustEnv("KAFKA_BROKERS"), ",")
+    pgDSN := mustEnv("POSTGRES_DSN")
+    brokers := strings.Split(mustEnv("KAFKA_BROKERS"), ",")
+    deviceURL := envOr("DEVICE_URL", "http://mock-device:8080")
+    webhookURL := envOr("WEBHOOK_URL", "http://mock-webhook:8080")
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+    ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+    defer stop()
 
-	st, err := store.New(ctx, pgDSN)
-	if err != nil {
-		log.Error("postgres connect", "err", err)
-		os.Exit(1)
-	}
-	defer st.Close()
+    st, err := store.New(ctx, pgDSN)
+    if err != nil {
+        log.Error("postgres connect", "err", err)
+        os.Exit(1)
+    }
+    defer st.Close()
 
-	consumer := kafka.NewConsumer(brokers, topic, groupID)
-	defer consumer.Close()
+    consumer := kafka.NewConsumer(brokers, topic, groupID)
+    defer consumer.Close()
 
-	log.Info("worker-standard ready", "topic", topic, "group", groupID)
+    // NEW (Phase 3): producer is used by the worker to publish failed
+    // messages to jobs.<tier>.retry or jobs.dlq. Same broker list as the
+    // consumer; one producer is shared for both retry and DLQ destinations.
+    producer := kafka.NewProducer(brokers)
+    defer producer.Close()
 
-	for {
-		msg, err := consumer.FetchMessage(ctx)
-		if err != nil {
-			if errors.Is(err, context.Canceled) {
-				log.Info("shutting down")
-				return
-			}
-			log.Error("fetch", "err", err)
-			time.Sleep(time.Second)
-			continue
-		}
+    // Wire handler dependencies. The DeviceClient and WebhookClient hit the
+    // mock services we'll add in Phase 6. JobSubmitter is the producer
+    // wrapper for cross-tier enqueue (also Phase 6).
+    deps := handlers.Deps{
+        Store:         st,
+        DeviceClient:  mockclients.NewDeviceClient(http.DefaultClient, deviceURL),
+        WebhookClient: mockclients.NewWebhookClient(http.DefaultClient, webhookURL),
+        JobSubmitter:  newKafkaSubmitter(brokers),
+    }
 
-		if err := processMessage(ctx, log, st, msg.Value); err != nil {
-			log.Error("process failed (no retry yet)", "err", err)
-			// Stage 2 has no retry: log and commit so we move on.
-			// Stage 3 adds retry topic + DLQ.
-		}
-
-		if err := consumer.CommitMessage(ctx, msg); err != nil {
-			log.Error("commit", "err", err)
-		}
-	}
-}
-
-func processMessage(ctx context.Context, log *slog.Logger, st *store.Store, value []byte) error {
-	var m kafkaJobMsg
-	if err := json.Unmarshal(value, &m); err != nil {
-		return err
-	}
-
-	jobID, err := uuid.Parse(m.JobID)
-	if err != nil {
-		return err
-	}
-
-	log.Info("processing job", "job_id", jobID, "type", m.Type)
-
-	// Move to RUNNING.
-	if _, err := st.Queries.UpdateJobState(ctx, db.UpdateJobStateParams{
-		ID:    jobID,
-		State: string(jobs.StateRunning),
-	}); err != nil {
-		return err
-	}
-
-	// "Do the work." For TELEMETRY_PROCESSING, simulate a 50–250ms operation.
-	// Stage 3 will replace this with a real per-task-type handler.
-	time.Sleep(time.Duration(50+rand.IntN(200)) * time.Millisecond)
-
-	// Move to SUCCESS.
-	if _, err := st.Queries.UpdateJobState(ctx, db.UpdateJobStateParams{
-		ID:    jobID,
-		State: string(jobs.StateSuccess),
-	}); err != nil {
-		return err
-	}
-
-	log.Info("job done", "job_id", jobID)
-	return nil
+    if err := worker.Run(ctx,
+        worker.Config{
+            Topic:       topic,
+            GroupID:     groupID,
+            AllowedTier: allowedTier,
+            Registry:    handlers.Build(deps),
+        },
+        worker.Deps{Consumer: consumer, Producer: producer, Store: st, Log: log},
+    ); err != nil {
+        log.Error("worker exited with error", "err", err)
+        os.Exit(1)
+    }
 }
 
 func mustEnv(k string) string {
-	v := os.Getenv(k)
-	if v == "" {
-		os.Stderr.WriteString("env " + k + " is required\n")
-		os.Exit(1)
-	}
-	return v
+    v := os.Getenv(k)
+    if v == "" {
+        os.Stderr.WriteString("env " + k + " is required\n")
+        os.Exit(1)
+    }
+    return v
+}
+
+func envOr(k, fb string) string {
+    if v := os.Getenv(k); v != "" {
+        return v
+    }
+    return fb
+}
+
+// newKafkaSubmitter is a stub for cross-tier enqueue; we wire it properly
+// in Phase 6. For Phases 2–5, returning a no-op is fine because
+// HealthCheckHandler is the only handler that uses it, and we won't
+// exercise that path until Phase 6.
+func newKafkaSubmitter(brokers []string) handlers.JobSubmitter {
+    return &noopSubmitter{}
+}
+
+type noopSubmitter struct{}
+
+func (noopSubmitter) Submit(ctx context.Context, typ jobs.Type, deviceID, idempKey string, payload []byte) error {
+    return nil
 }

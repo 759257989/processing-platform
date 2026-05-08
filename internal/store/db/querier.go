@@ -16,9 +16,24 @@ type Querier interface {
 	CreateDevice(ctx context.Context, id string) (Device, error)
 	CreateJob(ctx context.Context, arg CreateJobParams) (Job, error)
 	GetDevice(ctx context.Context, id string) (Device, error)
+	// Health check: read the columns the handler decides on.
+	GetDeviceForHealthCheck(ctx context.Context, id string) (GetDeviceForHealthCheckRow, error)
 	GetJob(ctx context.Context, id uuid.UUID) (Job, error)
 	GetJobByIdempotencyKey(ctx context.Context, arg GetJobByIdempotencyKeyParams) (Job, error)
 	IncrementJobAttempts(ctx context.Context, id uuid.UUID) (Job, error)
+	// Alert: record an alert row.
+	InsertAlert(ctx context.Context, arg InsertAlertParams) (Alert, error)
+	// Remote command: audit log entry.
+	InsertCommandAudit(ctx context.Context, arg InsertCommandAuditParams) (CommandAudit, error)
+	// ===== Phase 1 additions =====
+	// Telemetry: insert one aggregate row.
+	InsertDeviceMetric(ctx context.Context, arg InsertDeviceMetricParams) (DeviceMetric, error)
+	// Firmware: record an attempt. Always inserts; we keep history.
+	InsertFirmwareAttempt(ctx context.Context, arg InsertFirmwareAttemptParams) (FirmwareHistory, error)
+	// Health check: bump last_seen.
+	TouchDevice(ctx context.Context, id string) error
+	// Update the device's recorded firmware version after a successful update.
+	UpdateDeviceFirmware(ctx context.Context, arg UpdateDeviceFirmwareParams) error
 	UpdateJobState(ctx context.Context, arg UpdateJobStateParams) (Job, error)
 }
 
