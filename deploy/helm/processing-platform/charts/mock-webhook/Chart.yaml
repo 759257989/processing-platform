@@ -1,0 +1,6 @@
+apiVersion: v2
+name: mock-webhook
+description: Alert receiver mock that logs incoming webhook payloads
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

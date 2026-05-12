@@ -176,3 +176,19 @@ kind-load-workers: docker-build-workers
 .PHONY: docker-build-retry-router
 docker-build-retry-router:
 	docker build --build-arg BINARY=retry-router -t processing-platform/retry-router:dev .
+
+.PHONY: docker-build-reaper
+docker-build-reaper:
+	docker build --build-arg BINARY=reaper -t processing-platform/reaper:dev .
+
+.PHONY: docker-build-ingestion
+docker-build-ingestion:
+	docker build --build-arg BINARY=ingestion -t processing-platform/ingestion:dev .
+
+.PHONY: docker-build-mock-device
+docker-build-mock-device:
+	docker build --build-arg BINARY=mock-device -t processing-platform/mock-device:dev .
+
+.PHONY: docker-build-mock-webhook
+docker-build-mock-webhook:
+	docker build --build-arg BINARY=mock-webhook -t processing-platform/mock-webhook:dev .

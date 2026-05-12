@@ -75,3 +75,28 @@ UPDATE devices SET last_seen_at = NOW() WHERE id = $1;
 INSERT INTO alerts (device_id, severity, message, payload)
 VALUES ($1, $2, $3, $4)
 RETURNING *;
+
+-- name: ReapStaleJobs :many
+-- Find RUNNING jobs whose heartbeat is older than `staleness`. The
+-- FOR UPDATE SKIP LOCKED clause is critical: multiple reaper instances
+-- (or the reaper running concurrently with workers) must not fight over
+-- the same row. SKIP LOCKED makes them cooperate naturally.
+SELECT id, type, tier, attempts, max_attempts
+FROM jobs
+WHERE state = 'RUNNING'
+  AND heartbeat_at < NOW() - $1::interval
+ORDER BY heartbeat_at ASC
+LIMIT $2
+FOR UPDATE SKIP LOCKED;
+
+-- name: RequeueJob :one
+-- Reset a stale RUNNING job back to QUEUED so it'll be picked up again.
+-- Increments attempts so we don't retry forever.
+UPDATE jobs
+SET state = 'QUEUED',
+    attempts = attempts + 1,
+    heartbeat_at = NULL,
+    started_at = NULL,
+    updated_at = NOW()
+WHERE id = $1
+RETURNING *;

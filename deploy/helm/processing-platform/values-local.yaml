@@ -114,3 +114,15 @@ worker-bulk:
 
 retry-router:
   enabled: true
+
+reaper:
+  enabled: true
+
+ingestion:
+  enabled: true
+
+mock-device:
+  enabled: true
+
+mock-webhook:
+  enabled: true

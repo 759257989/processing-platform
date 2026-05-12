@@ -14,5 +14,32 @@ dependencies:
 - name: mosquitto
   repository: file://./charts/mosquitto
   version: 0.1.0
-digest: sha256:6c761a2621ca51ac89554dd6802a8dfcf6a6eec4576ed37bac8e2793b1230fb6
-generated: "2026-05-06T15:35:13.189972-07:00"
+- name: api
+  repository: file://./charts/api
+  version: 0.1.0
+- name: worker-standard
+  repository: file://./charts/worker-standard
+  version: 0.1.0
+- name: worker-realtime
+  repository: file://./charts/worker-realtime
+  version: 0.1.0
+- name: worker-bulk
+  repository: file://./charts/worker-bulk
+  version: 0.1.0
+- name: retry-router
+  repository: file://./charts/retry-router
+  version: 0.1.0
+- name: reaper
+  repository: file://./charts/reaper
+  version: 0.1.0
+- name: ingestion
+  repository: file://./charts/ingestion
+  version: 0.1.0
+- name: mock-device
+  repository: file://./charts/mock-device
+  version: 0.1.0
+- name: mock-webhook
+  repository: file://./charts/mock-webhook
+  version: 0.1.0
+digest: sha256:f546ae42f0655540686e498dbf4a9352eb1fb328fb5a6fa2f81558850a1c7bd2
+generated: "2026-05-11T15:15:18.162739-04:00"

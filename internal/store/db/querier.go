@@ -30,6 +30,14 @@ type Querier interface {
 	InsertDeviceMetric(ctx context.Context, arg InsertDeviceMetricParams) (DeviceMetric, error)
 	// Firmware: record an attempt. Always inserts; we keep history.
 	InsertFirmwareAttempt(ctx context.Context, arg InsertFirmwareAttemptParams) (FirmwareHistory, error)
+	// Find RUNNING jobs whose heartbeat is older than `staleness`. The
+	// FOR UPDATE SKIP LOCKED clause is critical: multiple reaper instances
+	// (or the reaper running concurrently with workers) must not fight over
+	// the same row. SKIP LOCKED makes them cooperate naturally.
+	ReapStaleJobs(ctx context.Context, arg ReapStaleJobsParams) ([]ReapStaleJobsRow, error)
+	// Reset a stale RUNNING job back to QUEUED so it'll be picked up again.
+	// Increments attempts so we don't retry forever.
+	RequeueJob(ctx context.Context, id uuid.UUID) (Job, error)
 	// Health check: bump last_seen.
 	TouchDevice(ctx context.Context, id string) error
 	// Update the device's recorded firmware version after a successful update.

@@ -16,6 +16,7 @@ import (
 
     "github.com/759257989/processing-platform/internal/handlers"
     "github.com/759257989/processing-platform/internal/jobs"
+    "github.com/759257989/processing-platform/internal/jobsubmitter"
     "github.com/759257989/processing-platform/internal/kafka"
     "github.com/759257989/processing-platform/internal/mockclients"
     "github.com/759257989/processing-platform/internal/store"
@@ -63,7 +64,7 @@ func main() {
         Store:         st,
         DeviceClient:  mockclients.NewDeviceClient(http.DefaultClient, deviceURL),
         WebhookClient: mockclients.NewWebhookClient(http.DefaultClient, webhookURL),
-        JobSubmitter:  newKafkaSubmitter(brokers),
+        JobSubmitter:  jobsubmitter.New(producer, st),
     }
 
     if err := worker.Run(ctx,
@@ -96,16 +97,3 @@ func envOr(k, fb string) string {
     return fb
 }
 
-// newKafkaSubmitter is a stub for cross-tier enqueue; we wire it properly
-// in Phase 6. For Phases 2–5, returning a no-op is fine because
-// HealthCheckHandler is the only handler that uses it, and we won't
-// exercise that path until Phase 6.
-func newKafkaSubmitter(brokers []string) handlers.JobSubmitter {
-    return &noopSubmitter{}
-}
-
-type noopSubmitter struct{}
-
-func (noopSubmitter) Submit(ctx context.Context, typ jobs.Type, deviceID, idempKey string, payload []byte) error {
-    return nil
-}

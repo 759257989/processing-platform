@@ -28,11 +28,15 @@ func (h *AlertHandler) Handle(ctx context.Context, j Job) error {
     }
 
     // Step 1: durably record the alert. If this fails, retry will re-create.
+    extra := []byte(p.Extra)
+    if len(extra) == 0 {
+        extra = []byte("{}")
+    }
     if _, err := h.Deps.Store.Queries.InsertAlert(ctx, db.InsertAlertParams{
         DeviceID: j.DeviceID,
         Severity: p.Severity,
         Message:  p.Message,
-        Payload:  []byte(p.Extra),
+        Payload:  extra,
     }); err != nil {
         return fmt.Errorf("insert alert: %w", err)
     }

@@ -57,3 +57,23 @@ dependencies:
     version: 0.1.0
     repository: "file://./charts/retry-router"
     condition: retry-router.enabled
+
+  - name: reaper
+    version: 0.1.0
+    repository: "file://./charts/reaper"
+    condition: reaper.enabled
+
+  - name: ingestion
+    version: 0.1.0
+    repository: "file://./charts/ingestion"
+    condition: ingestion.enabled
+
+  - name: mock-device
+    version: 0.1.0
+    repository: "file://./charts/mock-device"
+    condition: mock-device.enabled
+
+  - name: mock-webhook
+    version: 0.1.0
+    repository: "file://./charts/mock-webhook"
+    condition: mock-webhook.enabled

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createDevice = `-- name: CreateDevice :one
@@ -339,6 +340,95 @@ func (q *Queries) InsertFirmwareAttempt(ctx context.Context, arg InsertFirmwareA
 		&i.State,
 		&i.FailureReason,
 		&i.AttemptedAt,
+	)
+	return i, err
+}
+
+const reapStaleJobs = `-- name: ReapStaleJobs :many
+SELECT id, type, tier, attempts, max_attempts
+FROM jobs
+WHERE state = 'RUNNING'
+  AND heartbeat_at < NOW() - $1::interval
+ORDER BY heartbeat_at ASC
+LIMIT $2
+FOR UPDATE SKIP LOCKED
+`
+
+type ReapStaleJobsParams struct {
+	Column1 pgtype.Interval `json:"column_1"`
+	Limit   int32           `json:"limit"`
+}
+
+type ReapStaleJobsRow struct {
+	ID          uuid.UUID `json:"id"`
+	Type        string    `json:"type"`
+	Tier        string    `json:"tier"`
+	Attempts    int32     `json:"attempts"`
+	MaxAttempts int32     `json:"max_attempts"`
+}
+
+// Find RUNNING jobs whose heartbeat is older than `staleness`. The
+// FOR UPDATE SKIP LOCKED clause is critical: multiple reaper instances
+// (or the reaper running concurrently with workers) must not fight over
+// the same row. SKIP LOCKED makes them cooperate naturally.
+func (q *Queries) ReapStaleJobs(ctx context.Context, arg ReapStaleJobsParams) ([]ReapStaleJobsRow, error) {
+	rows, err := q.db.Query(ctx, reapStaleJobs, arg.Column1, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ReapStaleJobsRow
+	for rows.Next() {
+		var i ReapStaleJobsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Type,
+			&i.Tier,
+			&i.Attempts,
+			&i.MaxAttempts,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const requeueJob = `-- name: RequeueJob :one
+UPDATE jobs
+SET state = 'QUEUED',
+    attempts = attempts + 1,
+    heartbeat_at = NULL,
+    started_at = NULL,
+    updated_at = NOW()
+WHERE id = $1
+RETURNING id, type, tier, device_id, state, payload, idempotency_key, attempts, max_attempts, last_error, heartbeat_at, started_at, finished_at, created_at, updated_at
+`
+
+// Reset a stale RUNNING job back to QUEUED so it'll be picked up again.
+// Increments attempts so we don't retry forever.
+func (q *Queries) RequeueJob(ctx context.Context, id uuid.UUID) (Job, error) {
+	row := q.db.QueryRow(ctx, requeueJob, id)
+	var i Job
+	err := row.Scan(
+		&i.ID,
+		&i.Type,
+		&i.Tier,
+		&i.DeviceID,
+		&i.State,
+		&i.Payload,
+		&i.IdempotencyKey,
+		&i.Attempts,
+		&i.MaxAttempts,
+		&i.LastError,
+		&i.HeartbeatAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
