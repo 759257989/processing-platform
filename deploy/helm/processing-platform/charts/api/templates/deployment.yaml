@@ -21,6 +21,8 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+            - name: metrics                          # Prometheus 通过 ServiceMonitor 来 scrape 这个端口
+              containerPort: 9090
           env:
             {{- range $k, $v := .Values.env }}
             - name: {{ $k }}

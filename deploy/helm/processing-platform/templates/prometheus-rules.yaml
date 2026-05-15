@@ -1,0 +1,116 @@
+# PrometheusRule for processing-platform SLO + operational alerts.
+#
+# How it gets loaded: kube-prometheus-stack's Prometheus Operator watches for
+# PrometheusRule CRDs with label `release: pp` cluster-wide and merges them
+# into the Prometheus rule reload loop. No Prometheus restart needed.
+#
+# Two rule groups:
+#   1. pp.slo.recording — pre-compute expensive burn-rate ratios every 30s
+#                         so alert evaluation is just a comparison, not a
+#                         multi-window rate division.
+#   2. pp.slo.alerts    — the actual alert definitions, evaluated every
+#                         interval against the recorded series.
+#
+# Helm-vs-Prometheus template syntax conflict:
+#   Both Helm and Prometheus annotations use double-curly delimiters for
+#   template variables. We use Helm's backtick-literal escape (open-curly
+#   backtick ... backtick close-curly) to pass Prometheus's own $labels /
+#   $value template references through unchanged.
+#
+# Status of each alert (as of writing):
+#   ✅ SLOFastBurn / SLOSlowBurn — driven by pp_jobs_processed_total, wired
+#   ✅ DLQNotEmpty                — rule loads, but pp_dlq_depth gauge has no
+#                                   .Set() call in code yet, so it never fires
+#                                   until the worker DLQ path is instrumented
+#   ⚠️  ReaperStalled              — pp_reaper_last_run_timestamp does NOT exist
+#                                   in metrics.go. Alert is dormant. Will need
+#                                   a new gauge in reaper/main.go before useful.
+#   ⚠️  DBPoolHigh                 — pp_db_pool_{in_use,max} don't exist yet.
+#                                   Same story — wire in store/store.go.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: pp-slo-rules
+  labels:
+    release: pp                                       # 关键：Operator selector
+    app.kubernetes.io/part-of: processing-platform
+spec:
+  groups:
+    # ──────────────────── Recording rules ────────────────────
+    # SLO target: 99.9% job success → 0.1% error budget.
+    # burn_rate = current_error_rate / budget_rate = error_ratio / 0.001.
+    - name: pp.slo.recording
+      interval: 30s
+      rules:
+        - record: pp:job_error_ratio:1h
+          expr: |
+            sum by (tier) (rate(pp_jobs_processed_total{state="failed"}[1h]))
+            /
+            sum by (tier) (rate(pp_jobs_processed_total[1h]))
+        - record: pp:job_error_ratio:6h
+          expr: |
+            sum by (tier) (rate(pp_jobs_processed_total{state="failed"}[6h]))
+            /
+            sum by (tier) (rate(pp_jobs_processed_total[6h]))
+        - record: pp:burn_rate:1h
+          expr: pp:job_error_ratio:1h / 0.001
+        - record: pp:burn_rate:6h
+          expr: pp:job_error_ratio:6h / 0.001
+
+    # ──────────────────── Alert rules ────────────────────
+    - name: pp.slo.alerts
+      rules:
+        # Fast burn: at >14.4× normal we exhaust the monthly budget in 2 days.
+        # 14.4 = (2% of monthly budget / 1h window) ÷ (0.1% / 720h budget rate).
+        # "AND on 6h" prevents single-hour spikes from paging.
+        - alert: SLOFastBurn
+          expr: pp:burn_rate:1h > 14.4 and pp:burn_rate:6h > 6
+          for: 2m                                     # 持续 2m 才告，避免毛刺
+          labels:
+            severity: critical
+          annotations:
+            summary: {{`"Fast SLO burn on tier {{ $labels.tier }}"`}}
+            description: |
+              {{`Burn rate is {{ $value | printf "%.1f" }}× normal on tier {{ $labels.tier }} over the last 1h.
+              At this rate the monthly error budget exhausts in {{ with query "720 / pp:burn_rate:1h" }}{{ . | first | value | printf "%.1f" }}{{ end }} hours.`}}
+
+        # Slow burn: lower threshold over longer window — emails, not pages.
+        - alert: SLOSlowBurn
+          expr: pp:burn_rate:6h > 6 and pp:burn_rate:1h > 2
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: {{`"Slow SLO burn on tier {{ $labels.tier }}"`}}
+            description: {{`"Sustained burn rate {{ $value | printf \"%.1f\" }}× normal on tier {{ $labels.tier }} over 6h."`}}
+
+        # DLQ: even 1 message is noteworthy (we already retried).
+        # NOTE: pp_dlq_depth has no .Set() call in code yet — alert is dormant.
+        - alert: DLQNotEmpty
+          expr: sum by (topic) (pp_dlq_depth) > 0
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: {{`"DLQ {{ $labels.topic }} has messages"`}}
+            description: {{`"{{ $value }} messages permanently failed; check {{ $labels.topic }}."`}}
+
+        # Reaper liveness: requeue cron stalled.
+        # NOTE: pp_reaper_last_run_timestamp not yet emitted; alert is dormant.
+        - alert: ReaperStalled
+          expr: time() - max(pp_reaper_last_run_timestamp) > 300
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Reaper has not run in 5 minutes"
+
+        # DB pool saturation — leading indicator of API slowdown.
+        # NOTE: pp_db_pool_in_use / pp_db_pool_max not yet emitted; alert is dormant.
+        - alert: DBPoolHigh
+          expr: pp_db_pool_in_use / pp_db_pool_max > 0.9
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: {{`"DB pool > 90% on {{ $labels.service }}"`}}

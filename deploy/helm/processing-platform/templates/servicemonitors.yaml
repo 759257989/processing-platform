@@ -1,0 +1,22 @@
+# ServiceMonitor 是 Prometheus Operator 的 CRD：告诉 Prometheus 去哪 scrape /metrics。
+# 必须有 release: pp label——kube-prometheus-stack 的 Prometheus 默认 selector 就是它。
+#
+# 当前只包含已经接入 observability.Init 的 4 个服务（api + 3 个 worker）。
+# retry-router / reaper / ingestion 还没埋点，先不列入；等它们也接入了再往 list 里加。
+{{- range $svc := list "api" "worker-realtime" "worker-standard" "worker-bulk" }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $svc }}
+  labels:
+    release: pp                                      # 关键：少了这个 Operator 不会管这个 SM
+spec:
+  selector:
+    matchLabels:
+      app: {{ $svc }}
+  endpoints:
+    - port: metrics                                  # 引用 Service.spec.ports[].name == "metrics"
+      interval: 15s
+      path: /metrics
+{{- end }}

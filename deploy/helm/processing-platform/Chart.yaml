@@ -77,3 +77,18 @@ dependencies:
     version: 0.1.0
     repository: "file://./charts/mock-webhook"
     condition: mock-webhook.enabled
+  
+  - name: kube-prometheus-stack
+    version: 58.2.1                                   # 装时锁定，避免不可控升级
+    repository: https://prometheus-community.github.io/helm-charts
+    condition: kube-prometheus-stack.enabled
+
+  - name: loki-stack
+    version: 2.10.2
+    repository: https://grafana.github.io/helm-charts
+    condition: loki-stack.enabled
+
+  - name: tempo
+    version: 1.10.1
+    repository: https://grafana.github.io/helm-charts
+    condition: tempo.enabled

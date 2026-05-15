@@ -41,5 +41,14 @@ dependencies:
 - name: mock-webhook
   repository: file://./charts/mock-webhook
   version: 0.1.0
-digest: sha256:f546ae42f0655540686e498dbf4a9352eb1fb328fb5a6fa2f81558850a1c7bd2
-generated: "2026-05-11T15:15:18.162739-04:00"
+- name: kube-prometheus-stack
+  repository: https://prometheus-community.github.io/helm-charts
+  version: 58.2.1
+- name: loki-stack
+  repository: https://grafana.github.io/helm-charts
+  version: 2.10.2
+- name: tempo
+  repository: https://grafana.github.io/helm-charts
+  version: 1.10.1
+digest: sha256:a64250d4a8e138e92b208e21bb276a05089b2bc7b1cb6067569fb80dd2a04793
+generated: "2026-05-13T10:17:18.775416-04:00"

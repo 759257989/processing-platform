@@ -192,3 +192,21 @@ docker-build-mock-device:
 .PHONY: docker-build-mock-webhook
 docker-build-mock-webhook:
 	docker build --build-arg BINARY=mock-webhook -t processing-platform/mock-webhook:dev .
+
+.PHONY: port-forward-grafana
+port-forward-grafana:
+	kubectl port-forward svc/pp-grafana 3000:80
+
+.PHONY: port-forward-prom
+port-forward-prom:
+	kubectl port-forward svc/pp-kube-prometheus-stack-prometheus 9090:9090
+
+.PHONY: port-forward-alertmanager
+port-forward-alertmanager:
+	kubectl port-forward svc/pp-kube-prometheus-stack-alertmanager 9093:9093
+
+
+.PHONY: redeploy
+redeploy: kind-load ## rebuild images + rollout restart all app deployments
+	kubectl rollout restart deploy/api deploy/worker-realtime deploy/worker-standard deploy/worker-bulk
+	kubectl rollout status   deploy/worker-standard --timeout=60s

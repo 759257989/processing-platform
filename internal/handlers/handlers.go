@@ -8,6 +8,7 @@ package handlers
 import (
     "context"
     "fmt"
+    "log/slog"
 
     "github.com/759257989/processing-platform/internal/jobs"
     "github.com/759257989/processing-platform/internal/store"
@@ -53,6 +54,7 @@ type Deps struct {
     DeviceClient   DeviceClient    // talks to the mock-device service
     WebhookClient  WebhookClient   // talks to the mock-webhook service
     JobSubmitter   JobSubmitter    // for cross-tier enqueue (Phase 6)
+    Log            *slog.Logger    // wrap with observability.WithTrace(ctx, ...) inside Handle
 }
 
 // DeviceClient and WebhookClient are interfaces so handlers don't import

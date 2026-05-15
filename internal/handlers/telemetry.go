@@ -6,6 +6,7 @@ import (
     "fmt"
     "time"
 
+    "github.com/759257989/processing-platform/internal/observability"
     "github.com/759257989/processing-platform/internal/store/db"
 )
 
@@ -24,6 +25,9 @@ type telemetryPayload struct {
 }
 
 func (h *TelemetryHandler) Handle(ctx context.Context, j Job) error {
+    log := observability.WithTrace(ctx, h.Deps.Log)
+    log.Info("starting telemetry processing", "job_id", j.ID, "device_id", j.DeviceID)
+
     var p telemetryPayload
     if err := json.Unmarshal(j.Payload, &p); err != nil {
         return fmt.Errorf("decode telemetry payload: %w", err)

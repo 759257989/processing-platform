@@ -126,3 +126,134 @@ mock-device:
 
 mock-webhook:
   enabled: true
+
+kube-prometheus-stack:
+  enabled: true
+
+  # 本地 kind 资源紧张，关掉一些可有可无的
+  alertmanager:
+    enabled: true
+    alertmanagerSpec:
+      resources:
+        requests: { cpu: 50m, memory: 64Mi }
+        limits:   { cpu: 200m, memory: 256Mi }
+    # Phase 7 — 把 alert 全部路由到 mock-webhook，模拟真实 PagerDuty / Slack
+    # 集成的样子，但不用真凭证。所有 receiver 走同一个 webhook，severity 仅
+    # 通过分组方式区分（生产里这里会路由到不同 receiver）。
+    config:
+      global:
+        resolve_timeout: 5m
+      route:
+        group_by: ['alertname', 'tier']
+        group_wait: 10s                               # alert 出现到首次发送的延迟
+        group_interval: 30s                           # 同组内新 alert 等多久再合并发
+        repeat_interval: 1h                           # 持续 firing 多久重发一次
+        receiver: 'mock-webhook'                      # 默认 catch-all
+        routes:
+          - matchers: ['severity = critical']
+            receiver: 'mock-webhook'
+            continue: true                            # critical 也再走默认路径（演示 continue）
+      receivers:
+        - name: 'mock-webhook'
+          webhook_configs:
+            - url: 'http://mock-webhook:8080/alert'
+              send_resolved: true                     # alert 解除时也通知
+
+  prometheus:
+    prometheusSpec:
+      resources:
+        requests: { cpu: 200m, memory: 512Mi }
+        limits:   { cpu: 1, memory: 2Gi }
+      # 默认 Prom 只 scrape 它自己 namespace；让它扫整个集群
+      serviceMonitorSelectorNilUsesHelmValues: false
+      podMonitorSelectorNilUsesHelmValues: false
+      # 把 alert 路由到我们自己装的 alertmanager（默认就是的，但显式更清晰）
+      ruleSelectorNilUsesHelmValues: false
+      # 本地 7 天数据足够
+      retention: 7d
+
+  grafana:
+    enabled: true
+    adminPassword: "admin"                            # 本地用，生产换 secret
+    persistence:
+      enabled: true
+      size: 1Gi
+    # 启用 sidecar 自动发现 dashboard ConfigMap
+    sidecar:
+      dashboards:
+        enabled: true
+        label: grafana_dashboard                      # ConfigMap 上有这个 label 就自动加载
+        labelValue: "1"
+        searchNamespace: ALL
+      datasources:
+        enabled: true
+        label: grafana_datasource
+        labelValue: "1"
+        # 关键：让 sidecar 创建的 Prometheus datasource 不是 default。
+        # 否则它和 loki-stack 自动注入的 Loki（也是 isDefault:true）冲突，
+        # Grafana 拒绝两个 default，导致两个数据源都加载失败。
+        defaultDatasourceEnabled: false
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits:   { cpu: 500m, memory: 512Mi }
+
+  # node-exporter 在 kind 里数据没意义（kind 节点是 docker 容器），关掉省资源
+  nodeExporter:
+    enabled: false
+  prometheus-node-exporter:
+    enabled: false
+
+  # kube-state-metrics 也用不上特别多（本地集群），但保留——3 块 dashboard 会用到 pod CPU/Mem
+  kubeStateMetrics:
+    enabled: true
+
+loki-stack:
+  enabled: true
+  loki:
+    persistence:
+      enabled: true
+      size: 2Gi
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+  promtail:
+    enabled: true                                     # promtail 跑成 DaemonSet 收所有 pod log
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+    config:
+      # 关键：loki-stack chart 当 subchart 装时，默认把 Promtail 的 client
+      # url 渲染成 http://{{ .Release.Name }}:3100，对我们就是 http://pp:3100
+      # —— 但实际 Loki service 是 pp-loki:3100。
+      #
+      # 注意：loki-stack 2.10.x 里 `config.lokiAddress` 这个简写键不一定生效
+      # （chart 版本差异），最稳的是直接覆盖 `config.clients` 数组本身。
+      clients:
+        - url: http://pp-loki:3100/loki/api/v1/push
+      snippets:
+        pipelineStages:
+          - cri: {}                                   # 先解 cri 日志格式（kind/containerd 用的就是 cri 格式）
+          - json:                                     # 解 stdout 里的 JSON，把字段抽出来
+              expressions:
+                level: level
+                trace_id: trace_id
+                job_id: job_id
+                device_id: device_id
+                service: service
+          - labels:                                   # 只把低基数字段提升成 Loki label
+              level:                                  # 5 种 log level，安全
+              service:                                # 8 个 service，安全
+              # 注意：trace_id / job_id / device_id 绝对不能当 label——cardinality 爆。
+              # 它们通过上面的 json stage 解出来后，会作为可查询的结构化字段存在，
+              # 用 LogQL 的 | json | trace_id="xxx" 就能查，不需要做成 label。
+  grafana:
+    enabled: false                                    # 已经有 kube-prometheus-stack 的 grafana 了
+  prometheus:
+    enabled: false
+
+tempo:
+  enabled: true
+  tempo:
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+  persistence:
+    enabled: true
+    size: 1Gi

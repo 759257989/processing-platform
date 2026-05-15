@@ -7,6 +7,7 @@ import (
 
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/compress"
+	"go.opentelemetry.io/otel"
 )
 
 // Producer wraps a kafka.Writer with our defaults.
@@ -32,11 +33,18 @@ func NewProducer(brokers []string) *Producer {
 
 // Publish sends one message to the named topic. The key partitions by device_id
 // so messages for the same device land on the same partition (preserving order).
+//
+// Injects the current span's trace context (W3C traceparent) into Kafka headers
+// so the consumer side can continue the same trace. If ctx has no active span
+// the propagator just writes nothing.
 func (p *Producer) Publish(ctx context.Context, topic string, key, value []byte) error {
+	headers := kafkaHeaderCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, &headers)
 	return p.w.WriteMessages(ctx, kafka.Message{
-		Topic: topic,
-		Key:   key,
-		Value: value,
+		Topic:   topic,
+		Key:     key,
+		Value:   value,
+		Headers: []kafka.Header(headers),
 	})
 }
 
@@ -47,13 +55,16 @@ func (p *Producer) Close() error {
 
 // PublishWithHeader sends a message with one custom header. Used by the
 // worker to attach "retry-at: <unix-ts>" when scheduling a retry.
+//
+// Same trace-context injection as Publish, plus the caller's custom header.
 func (p *Producer) PublishWithHeader(ctx context.Context, topic string, key, value []byte, headerKey string, headerValue []byte) error {
+	headers := kafkaHeaderCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, &headers)
+	headers = append(headers, kafka.Header{Key: headerKey, Value: headerValue})
 	return p.w.WriteMessages(ctx, kafka.Message{
-		Topic: topic,
-		Key:   key,
-		Value: value,
-		Headers: []kafka.Header{
-			{Key: headerKey, Value: headerValue},
-		},
+		Topic:   topic,
+		Key:     key,
+		Value:   value,
+		Headers: []kafka.Header(headers),
 	})
 }

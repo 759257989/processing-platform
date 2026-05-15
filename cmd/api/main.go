@@ -20,25 +20,46 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/redis/go-redis/v9"
 
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+
 	"github.com/759257989/processing-platform/internal/idempotency"
 	"github.com/759257989/processing-platform/internal/jobs"
 	"github.com/759257989/processing-platform/internal/kafka"
+	"github.com/759257989/processing-platform/internal/observability"
 	"github.com/759257989/processing-platform/internal/store"
 	"github.com/759257989/processing-platform/internal/store/db"
 )
 
 func main() {
-	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	slog.SetDefault(log)
-
 	// Config from environment. Stage 4 will switch this to a typed config struct.
 	pgDSN := mustEnv("POSTGRES_DSN")
 	redisAddr := mustEnv("REDIS_ADDR")
 	kafkaBrokers := strings.Split(mustEnv("KAFKA_BROKERS"), ",")
 	listenAddr := envOr("LISTEN_ADDR", ":8080")
+	metricsAddr := envOr("METRICS_ADDR", ":9090")
+	otlpEndpoint := envOr("OTLP_ENDPOINT", "pp-tempo:4317")
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Bootstrap observability before anything else. Init wires:
+	//   - slog JSON logger to stdout (Promtail picks it up)
+	//   - Prometheus registry + /metrics endpoint on metricsAddr
+	//   - OTel TracerProvider with OTLP gRPC exporter pointing at Tempo
+	// shutdown() flushes pending traces — must run before process exits.
+	obs, shutdown, err := observability.Init(ctx, "api", metricsAddr, otlpEndpoint)
+	if err != nil {
+		slog.Default().Error("observability init failed", "err", err)
+		os.Exit(1)
+	}
+	defer func() {
+		// 5s budget for trace exporter flush. Use fresh ctx because the main
+		// ctx may already be cancelled by the time we get here.
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = shutdown(shutdownCtx)
+	}()
+	log := obs.Log
 
 	// Connect to Postgres.
 	st, err := store.New(ctx, pgDSN)
@@ -60,12 +81,21 @@ func main() {
 	idemp := idempotency.NewRedis(rdb)
 
 	// Wire Kafka producer.
-	producer := kafka.NewProducer(kafkaBrokers)
+	// producer := kafka.NewProducer(kafkaBrokers)
+	producer := kafka.NewInstrumented(kafka.NewProducer(kafkaBrokers), obs.Metrics)
 	defer producer.Close()
 
 	// Build the HTTP handler.
 	r := gin.New()
 	r.Use(gin.Recovery())
+	// Middleware order matters:
+	//   1) Recovery first — a panic in later middleware/handlers still gets
+	//      converted to 500 so metrics + traces record the failure cleanly
+	//   2) Our Prometheus middleware — records pp_http_* metrics
+	//   3) otelgin — starts a span per request, extracts traceparent from
+	//      incoming headers, injects it into outgoing ctx
+	r.Use(observability.GinMetrics(obs.Metrics))
+	r.Use(otelgin.Middleware("api"))
 
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -98,11 +128,18 @@ func main() {
 
 // ----- handler -----
 
+// publisher is the only kafka.Producer surface the API handler needs.
+// Declared as an interface so both *kafka.Producer and *kafka.InstrumentedProducer
+// (which adds metrics) can satisfy it without the handler caring.
+type publisher interface {
+	Publish(ctx context.Context, topic string, key, value []byte) error
+}
+
 type handler struct {
 	log      *slog.Logger
 	store    *store.Store
 	idemp    idempotency.Acquirer
-	producer *kafka.Producer
+	producer publisher
 }
 
 type submitJobRequest struct {

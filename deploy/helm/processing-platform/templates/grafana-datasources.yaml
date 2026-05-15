@@ -1,0 +1,25 @@
+# 只添加 Tempo 数据源——Prometheus 和 Loki 由 kube-prometheus-stack 和 loki-stack 各自的
+# subchart 自动创建。
+#
+# 为什么之前 sidecar reload 500：
+#   1) 重复定义同名 Loki（loki-stack 已经建了一个），冲突
+#   2) tracesToLogsV2.datasourceUid 引用了 "loki"/"prometheus"，但 Grafana 用真正的 UID
+#      不是 name 来交叉引用，未指定 uid 的数据源会拿到随机 UID，所以 reload 失败
+#
+# Phase 4 trace→log 跳转那一步要时再回来给 Tempo 加 tracesToLogsV2，用真正的 UID。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-extra-datasources
+  labels:
+    grafana_datasource: "1"
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Tempo
+        type: tempo
+        uid: tempo                                     # 显式 UID，后面 trace 跳转 / dashboard 引用会用
+        access: proxy
+        url: http://pp-tempo:3100
+        editable: false

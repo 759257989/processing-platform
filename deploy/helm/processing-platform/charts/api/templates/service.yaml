@@ -10,5 +10,8 @@ spec:
     - name: http
       port: {{ .Values.service.port }}
       targetPort: 8080
+    - name: metrics
+      port: 9090
+      targetPort: metrics                            # 用 named port 不是数字——deployment 改了端口号也不会断
   selector:
     app: api

@@ -5,6 +5,7 @@ import (
     "time"
 
     "github.com/segmentio/kafka-go"
+    "go.opentelemetry.io/otel"
 )
 
 // Consumer wraps a kafka.Reader configured for our consumer-group pattern.
@@ -33,6 +34,25 @@ func NewConsumer(brokers []string, topic, groupID string) *Consumer {
 // Caller must call CommitMessage after successful processing.
 func (c *Consumer) FetchMessage(ctx context.Context) (kafka.Message, error) {
     return c.r.FetchMessage(ctx)
+}
+
+// FetchMessageWithCtx is like FetchMessage but also returns a context that
+// has the producer's trace context extracted from message headers. Use the
+// returned ctx for downstream processing (handler, DB calls, follow-up
+// Publish) so the entire processing path stays in the same trace.
+//
+// If the message has no traceparent header the returned ctx == input ctx;
+// no harm done, just a fresh trace will start.
+func (c *Consumer) FetchMessageWithCtx(ctx context.Context) (kafka.Message, context.Context, error) {
+    msg, err := c.r.FetchMessage(ctx)
+    if err != nil {
+        return msg, ctx, err
+    }
+    carrier := kafkaHeaderCarrier(msg.Headers)
+    // Extract needs propagation.TextMapCarrier interface, which requires Set
+    // (pointer receiver). Pass &carrier even though Extract only reads.
+    enriched := otel.GetTextMapPropagator().Extract(ctx, &carrier)
+    return msg, enriched, nil
 }
 
 // CommitMessage marks the message as successfully processed.

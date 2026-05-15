@@ -6,6 +6,7 @@ import (
     "fmt"
 
     "github.com/759257989/processing-platform/internal/jobs"
+    "github.com/759257989/processing-platform/internal/observability"
 )
 
 // HealthCheckHandler polls a device's health; if it's unhealthy, it spawns
@@ -16,6 +17,9 @@ type HealthCheckHandler struct {
 }
 
 func (h *HealthCheckHandler) Handle(ctx context.Context, j Job) error {
+    log := observability.WithTrace(ctx, h.Deps.Log)
+    log.Info("starting health check", "job_id", j.ID, "device_id", j.DeviceID)
+
     healthy, lastSeenAgo, err := h.Deps.DeviceClient.GetHealth(ctx, j.DeviceID)
     if err != nil {
         return fmt.Errorf("device health check: %w", err)

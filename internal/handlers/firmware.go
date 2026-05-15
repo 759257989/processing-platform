@@ -5,6 +5,7 @@ import (
     "encoding/json"
     "fmt"
 
+    "github.com/759257989/processing-platform/internal/observability"
     "github.com/759257989/processing-platform/internal/store/db"
 )
 
@@ -20,6 +21,9 @@ type firmwarePayload struct {
 }
 
 func (h *FirmwareHandler) Handle(ctx context.Context, j Job) error {
+    log := observability.WithTrace(ctx, h.Deps.Log)
+    log.Info("starting firmware update", "job_id", j.ID, "device_id", j.DeviceID)
+
     var p firmwarePayload
     if err := json.Unmarshal(j.Payload, &p); err != nil {
         return fmt.Errorf("decode firmware payload: %w", err)

@@ -5,6 +5,7 @@ import (
     "encoding/json"
     "fmt"
 
+    "github.com/759257989/processing-platform/internal/observability"
     "github.com/759257989/processing-platform/internal/store/db"
 )
 
@@ -22,6 +23,9 @@ type alertPayload struct {
 }
 
 func (h *AlertHandler) Handle(ctx context.Context, j Job) error {
+    log := observability.WithTrace(ctx, h.Deps.Log)
+    log.Info("starting alert generation", "job_id", j.ID, "device_id", j.DeviceID)
+
     var p alertPayload
     if err := json.Unmarshal(j.Payload, &p); err != nil {
         return fmt.Errorf("decode alert payload: %w", err)

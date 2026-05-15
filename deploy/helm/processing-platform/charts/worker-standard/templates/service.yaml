@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: worker-standard
+  labels:
+    app: worker-standard
+spec:
+  type: ClusterIP
+  # Metrics-only service. worker-standard 是 Kafka 消费者，不需要 inbound HTTP；
+  # 这个 Service 存在的唯一目的是让 ServiceMonitor 能发现端点（targets）。
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+  selector:
+    app: worker-standard

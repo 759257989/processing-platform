@@ -13,9 +13,13 @@ import (
 
 	"github.com/google/uuid"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/759257989/processing-platform/internal/handlers"
 	"github.com/759257989/processing-platform/internal/jobs"
 	"github.com/759257989/processing-platform/internal/kafka"
+	"github.com/759257989/processing-platform/internal/observability"
 	"github.com/759257989/processing-platform/internal/retry"
 	"github.com/759257989/processing-platform/internal/store"
 	"github.com/759257989/processing-platform/internal/store/db"
@@ -33,6 +37,7 @@ type Deps struct {
 	Producer *kafka.Producer // NEW: for publishing to retry / DLQ
 	Store    *store.Store
 	Log      *slog.Logger
+	Tracer   trace.Tracer // NEW (Phase 4): used to start the per-message span
 }
 
 type kafkaJobMsg struct {
@@ -43,11 +48,14 @@ type kafkaJobMsg struct {
 	Payload  json.RawMessage `json:"payload"`
 }
 
-func Run(ctx context.Context, cfg Config, deps Deps) error {
+func Run(ctx context.Context, cfg Config, deps Deps, m *observability.Metrics) error {
 	deps.Log.Info("worker ready", "topic", cfg.Topic, "group", cfg.GroupID)
 
 	for {
-		msg, err := deps.Consumer.FetchMessage(ctx)
+		// FetchMessageWithCtx pulls traceparent out of the message headers and
+		// returns a ctx whose remote parent span = the API's submit span.
+		// Use msgCtx (not ctx) for everything downstream so spans stay linked.
+		msg, msgCtx, err := deps.Consumer.FetchMessageWithCtx(ctx)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return nil
@@ -56,9 +64,48 @@ func Run(ctx context.Context, cfg Config, deps Deps) error {
 			continue
 		}
 
-		if perr := processOne(ctx, cfg, deps, msg); perr != nil {
+		// Count every consumed message — this is the input rate. Divergence
+		// between this and JobsProcessedTotal indicates messages stuck in
+		// processing (handler blocked).
+		m.KafkaMessagesConsumed.WithLabelValues(cfg.Topic, cfg.GroupID).Inc()
+
+		// Parse first so the span carries job.id / type / tier as attributes.
+		var parsed struct {
+			JobID string `json:"job_id"`
+			Type  string `json:"type"`
+			Tier  string `json:"tier"`
+		}
+		_ = json.Unmarshal(msg.Value, &parsed)
+
+		// Start a Consumer-kind span as a child of the producer span. Any
+		// downstream Producer.Publish (retry / DLQ / cross-tier enqueue) made
+		// with spanCtx will inject this span as its parent, so the whole job
+		// processing chain appears as one trace in Tempo.
+		spanCtx, span := deps.Tracer.Start(msgCtx, "process_job",
+			trace.WithSpanKind(trace.SpanKindConsumer),
+			trace.WithAttributes(
+				attribute.String("job.id", parsed.JobID),
+				attribute.String("job.type", parsed.Type),
+				attribute.String("job.tier", parsed.Tier),
+				attribute.String("messaging.system", "kafka"),
+				attribute.String("messaging.destination", cfg.Topic),
+				attribute.Int("messaging.kafka.partition", msg.Partition),
+				attribute.Int64("messaging.kafka.offset", msg.Offset),
+			),
+		)
+
+		start := time.Now()
+		perr := processOne(spanCtx, cfg, deps, msg)
+
+		state := "success"
+		if perr != nil {
+			state = "failed"
+			span.RecordError(perr)
 			deps.Log.Error("process failed", "err", perr)
 		}
+		span.End()
+
+		m.ObserveJob(parsed.Type, parsed.Tier, state, time.Since(start).Seconds())
 
 		if cerr := deps.Consumer.CommitMessage(ctx, msg); cerr != nil {
 			deps.Log.Error("commit failed", "err", cerr)
@@ -122,13 +169,22 @@ func processOne(ctx context.Context, cfg Config, deps Deps, msg segkafka.Message
 	}
 
 	// ----- failure path -----
+	// Important: we always return handlerErr (not the retry/DLQ scheduling
+	// outcome) so that pp_jobs_processed_total{state="failed"} actually counts
+	// handler failures. Otherwise a successfully-scheduled retry would be
+	// recorded as state="success" and SLO burn-rate alerts could never fire.
 	nextAttempt := int(job.Attempts) + 1
 	if nextAttempt >= int(job.MaxAttempts) {
-		// No more retries: DLQ + FAILED.
-		return sendToDLQ(ctx, deps, msg.Value, jobID, handlerErr.Error())
+		if dlqErr := sendToDLQ(ctx, deps, msg.Value, jobID, handlerErr.Error()); dlqErr != nil {
+			deps.Log.Error("dlq publish", "err", dlqErr, "job_id", jobID)
+		}
+		return handlerErr
 	}
 
-	return sendToRetry(ctx, cfg, deps, msg.Value, jobID, nextAttempt, handlerErr.Error())
+	if retryErr := sendToRetry(ctx, cfg, deps, msg.Value, jobID, nextAttempt, handlerErr.Error()); retryErr != nil {
+		deps.Log.Error("retry publish", "err", retryErr, "job_id", jobID)
+	}
+	return handlerErr
 }
 
 // sendToRetry publishes to "jobs.<tier>.retry" with a "retry-at" header.

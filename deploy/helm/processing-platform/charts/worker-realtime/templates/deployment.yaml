@@ -18,6 +18,9 @@ spec:
         - name: worker-realtime
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: metrics
+              containerPort: 9090
           env:
             {{- range $k, $v := .Values.env }}
             - name: {{ $k }}
