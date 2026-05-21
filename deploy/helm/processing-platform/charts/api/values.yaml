@@ -9,12 +9,15 @@ service:
   port: 8080
 
 resources:
+  # 2026-05-19: Phase 5 Step 5.5 跑 k6 1000 RPS 时 API OOMKilled (exitCode 137)，
+  # limit 256Mi 不够。bump 到 1Gi 留 buffer：gin + pgx pool + Redis client +
+  # Kafka producer 同时分配，500 RPS 稳态 ~300MiB working set。
   requests:
-    cpu: 50m
-    memory: 64Mi
-  limits:
-    cpu: 500m
+    cpu: 200m
     memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
 
 env:
   POSTGRES_DSN: "postgres://postgres:localdev@pp-postgresql:5432/platform?sslmode=disable"

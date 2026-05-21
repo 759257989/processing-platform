@@ -3,7 +3,7 @@
 #
 # 当前只包含已经接入 observability.Init 的 4 个服务（api + 3 个 worker）。
 # retry-router / reaper / ingestion 还没埋点，先不列入；等它们也接入了再往 list 里加。
-{{- range $svc := list "api" "worker-realtime" "worker-standard" "worker-bulk" }}
+{{- range $svc := list "api" "worker-realtime" "worker-standard" "worker-bulk" "kafka-lag-exporter" "devsim"}}
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor

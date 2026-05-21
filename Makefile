@@ -3,7 +3,8 @@
 
 # ---- variables ----
 BINARIES := api ingestion worker-realtime worker-standard worker-bulk \
-            retry-router reaper mock-device mock-webhook devsim chaosmonkey
+            retry-router reaper mock-device mock-webhook devsim chaosmonkey \
+			kafka-lag-exporter
 
 GO            := go
 GOFLAGS       := -trimpath
@@ -78,8 +79,35 @@ up: ## bring up the local kind cluster + all infrastructure
 down: ## tear down the local kind cluster (destroys all data)
 	kind delete cluster --name=processing-platform
 
-load-test: ## (Stage 5) Run a 5-minute local load test.
-	@echo "Not yet implemented — see stages.md, Stage 5."
+.PHONY: load-test
+load-test: ## (Stage 5) Run a 10-minute local load test (devsim 1000 + k6 1k RPS)
+	@echo "==> phase 1: HPA 接管 worker .spec.replicas，不手动 scale"
+	@# 之前这里跑 kubectl scale 重置 replicas=1，但 HPA 已经接管 → 抢字段会
+	@# 报 "conflict with kube-controller-manager"。HPA 看 lag=0 时自动会缩
+	@# 回 minReplicas=1，所以不需要手动 reset。
+	@echo "==> phase 2: enable devsim @ 1000 devices"
+	helm upgrade pp deploy/helm/processing-platform \
+		-f deploy/helm/processing-platform/values-local.yaml \
+		--set devsim.enabled=true \
+		--set devsim.env.DEVICE_COUNT=1000
+	@kubectl rollout status deploy/devsim --timeout=60s
+	@echo "==> phase 3: 30s warm-up"
+	@sleep 30
+	@echo "==> phase 4: start k6 (will run ~11min)"
+	@kubectl port-forward svc/api 8080:8080 > /dev/null &
+	@sleep 2
+	@mkdir -p test/load/reports
+	@TS=$$(date +%Y%m%d-%H%M%S); \
+	  k6 run \
+	    -e API_URL=http://localhost:8080 \
+	    --summary-export=test/load/reports/submit-summary-$$TS.json \
+	    test/load/submit-rest.js | tee test/load/reports/k6-$$TS.log
+	@echo "==> phase 5: turn off devsim"
+	helm upgrade pp deploy/helm/processing-platform \
+		-f deploy/helm/processing-platform/values-local.yaml \
+		--set devsim.enabled=false
+	@echo "==> done. Reports in test/load/reports/"
+	@pkill -f "port-forward svc/api" || true
 
 dlq: ## (Stage 3) Print contents of the DLQ topic.
 	@echo "Not yet implemented — see stages.md, Stage 3."
@@ -210,3 +238,19 @@ port-forward-alertmanager:
 redeploy: kind-load ## rebuild images + rollout restart all app deployments
 	kubectl rollout restart deploy/api deploy/worker-realtime deploy/worker-standard deploy/worker-bulk
 	kubectl rollout status   deploy/worker-standard --timeout=60s
+
+.PHONY: docker-build-kafka-lag-exporter
+docker-build-kafka-lag-exporter:
+	docker build --build-arg BINARY=kafka-lag-exporter -t processing-platform/kafka-lag-exporter:dev .
+
+.PHONY: kind-load-kafka-lag-exporter
+kind-load-kafka-lag-exporter: docker-build-kafka-lag-exporter
+	kind load docker-image processing-platform/kafka-lag-exporter:dev --name=processing-platform
+
+.PHONY: docker-build-devsim
+docker-build-devsim:
+	docker build --build-arg BINARY=devsim -t processing-platform/devsim:dev .
+
+.PHONY: kind-load-devsim
+kind-load-devsim: docker-build-devsim
+	kind load docker-image processing-platform/devsim:dev --name=processing-platform

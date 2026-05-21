@@ -92,3 +92,17 @@ dependencies:
     version: 1.10.1
     repository: https://grafana.github.io/helm-charts
     condition: tempo.enabled
+  - name: kafka-lag-exporter
+    version: 0.1.0
+    repository: "file://./charts/kafka-lag-exporter"
+    condition: kafka-lag-exporter.enabled
+
+  - name: prometheus-adapter
+    version: 5.3.0
+    repository: https://prometheus-community.github.io/helm-charts
+    condition: prometheus-adapter.enabled
+
+  - name: devsim
+    version: 0.1.0
+    repository: "file://./charts/devsim"
+    condition: devsim.enabled

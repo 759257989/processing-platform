@@ -1,0 +1,19 @@
+image:
+  repository: processing-platform/kafka-lag-exporter
+  tag: "dev"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1                                       # 单 instance 够用，没状态
+
+resources:
+  requests:
+    cpu: 20m
+    memory: 32Mi
+  limits:
+    cpu: 100m
+    memory: 64Mi
+
+env:
+  KAFKA_BROKERS: "pp-kafka-controller-headless:9092"  # 走 headless service 直接到 broker
+  POLL_INTERVAL: "15s"                                # 跟 Prom 默认 scrape interval 对齐
+  METRICS_ADDR: ":9090"

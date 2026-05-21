@@ -1,0 +1,58 @@
+# HorizontalPodAutoscaler for each worker tier.
+#
+# Driver: kafka_consumer_lag external metric (Phase 1 exporter → prometheus-adapter → HPA).
+# HPA formula: desired = ceil(currentMetricValue / averageValue).
+#   e.g. lag=120, averageValue=30 → ceil(120/30) = 4 desired pods.
+#
+# 三个 tier 的 averageValue 不同——按预期处理速度 / 业务 latency 容忍度调：
+#   realtime:  averageValue=30   人在等结果，超过 30 条积压就该扩
+#   standard:  averageValue=200  容忍度高，先让单 pod 撑住
+#   bulk:      averageValue=500  长任务，扩容代价大，门槛拉高
+#
+# behavior.scaleUp / scaleDown 是 SRE 经典非对称设计：
+#   - scaleUp:   stabilizationWindow=0     扩容不犹豫（SLO 第一）
+#   - scaleDown: stabilizationWindow=300s  缩容看过去 5min 最大需求（防 flap）
+{{- range $tier := list (dict "name" "realtime" "topic" "jobs.realtime" "avg" 30  "max" 3)
+                       (dict "name" "standard" "topic" "jobs.standard" "avg" 200 "max" 3)
+                       (dict "name" "bulk"     "topic" "jobs.bulk"     "avg" 500 "max" 2) }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: worker-{{ $tier.name }}
+  labels:
+    app: worker-{{ $tier.name }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: worker-{{ $tier.name }}
+  minReplicas: 1
+  maxReplicas: {{ $tier.max }}
+  metrics:
+    - type: External
+      external:
+        metric:
+          name: kafka_consumer_lag                  # prometheus-adapter 暴露的名字（已去 pp_ 前缀）
+          selector:
+            matchLabels:
+              topic: {{ $tier.topic }}              # 只看本 tier 的 topic
+        target:
+          type: AverageValue                        # desired = ceil(value / avg)
+          averageValue: "{{ $tier.avg }}"
+  behavior:
+    # 扩容：lag 一来就扩，不犹豫
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100                                # 每 30s 最多翻倍
+          periodSeconds: 30
+    # 缩容：看过去 5 分钟最大需求才动，防止 flap
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1                                  # 每 60s 最多缩 1 个
+          periodSeconds: 60
+{{- end }}

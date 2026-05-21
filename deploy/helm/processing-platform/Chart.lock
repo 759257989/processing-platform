@@ -50,5 +50,14 @@ dependencies:
 - name: tempo
   repository: https://grafana.github.io/helm-charts
   version: 1.10.1
-digest: sha256:a64250d4a8e138e92b208e21bb276a05089b2bc7b1cb6067569fb80dd2a04793
-generated: "2026-05-13T10:17:18.775416-04:00"
+- name: kafka-lag-exporter
+  repository: file://./charts/kafka-lag-exporter
+  version: 0.1.0
+- name: prometheus-adapter
+  repository: https://prometheus-community.github.io/helm-charts
+  version: 5.3.0
+- name: devsim
+  repository: file://./charts/devsim
+  version: 0.1.0
+digest: sha256:03809d1d6451e663d47ffa51ab47fd4955e8624a2044ebb04b816058e6d4f24b
+generated: "2026-05-18T16:24:39.948818-04:00"

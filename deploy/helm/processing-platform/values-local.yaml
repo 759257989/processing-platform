@@ -257,3 +257,41 @@ tempo:
   persistence:
     enabled: true
     size: 1Gi
+
+kafka-lag-exporter:
+  enabled: true
+
+prometheus-adapter:
+  enabled: true
+
+  # 告诉 adapter 去哪查 Prom：上游 kube-prometheus-stack 的 prometheus service
+  prometheus:
+    url: http://pp-kube-prometheus-stack-prometheus.default.svc
+    port: 9090
+
+  # 资源限制 (本地小)
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits:   { cpu: 200m, memory: 128Mi }
+
+  # 关闭 chart 自带的默认规则——它们走的是 Custom Metrics API 而且
+  # 跟 metrics-server 重复。我们只要 external 规则。
+  rules:
+    default: false
+    external:
+      # ─────────── 规则 #1：pp_kafka_consumer_lag → kafka_consumer_lag ───────────
+      - seriesQuery: '{__name__="pp_kafka_consumer_lag"}'
+        # external 规则不绑 K8s 资源（不像 custom 规则要 pod / deploy 关联）
+        resources:
+          namespaced: false
+        # 重命名：去掉 pp_ 前缀，对外暴露成 kafka_consumer_lag
+        name:
+          matches: "^pp_kafka_consumer_lag$"
+          as: "kafka_consumer_lag"
+        # PromQL 模板：HPA 来问时，<<.LabelMatchers>> 会被 HPA 的 selector 填入
+        # sum() 把同一 topic 多 partition 的 lag 加起来（虽然现在只有 1 partition）
+        metricsQuery: 'sum(pp_kafka_consumer_lag{<<.LabelMatchers>>}) by (topic)'
+
+
+devsim:
+  enabled: false 

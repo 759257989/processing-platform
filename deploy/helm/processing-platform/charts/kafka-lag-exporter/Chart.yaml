@@ -1,0 +1,6 @@
+apiVersion: v2
+name: kafka-lag-exporter
+description: Custom Kafka consumer-lag exporter for processing-platform
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -25,6 +25,7 @@ import (
 	"github.com/759257989/processing-platform/internal/idempotency"
 	"github.com/759257989/processing-platform/internal/jobs"
 	"github.com/759257989/processing-platform/internal/kafka"
+	"github.com/759257989/processing-platform/internal/lagcache"
 	"github.com/759257989/processing-platform/internal/observability"
 	"github.com/759257989/processing-platform/internal/store"
 	"github.com/759257989/processing-platform/internal/store/db"
@@ -96,6 +97,15 @@ func main() {
 	//      incoming headers, injects it into outgoing ctx
 	r.Use(observability.GinMetrics(obs.Metrics))
 	r.Use(otelgin.Middleware("api"))
+
+	// Phase 7 — Backpressure：在 lag 超阈值时返回 503 保护下游。
+	// lagcache 后台每 5s 从 Prometheus 拉一次 per-tier lag，请求路径上是
+	// 纳秒级 map read。中间件在 POST /jobs 上 peek body 找 type → 算 tier
+	// → 查 cache → 决定 502 或放行。
+	promURL := envOr("PROMETHEUS_URL", "http://pp-kube-prometheus-stack-prometheus:9090")
+	lc := lagcache.New()
+	go lc.Run(ctx, promURL, 5*time.Second, obs.Log)
+	r.Use(lagcache.Backpressure(lc, lagcache.DefaultThresholds))
 
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})

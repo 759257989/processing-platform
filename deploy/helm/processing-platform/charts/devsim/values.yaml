@@ -1,0 +1,22 @@
+image:
+  repository: processing-platform/devsim
+  tag: "dev"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 64Mi
+  limits:
+    cpu: 1
+    memory: 256Mi
+
+env:
+  MQTT_BROKER: "tcp://mosquitto:1883"
+  DEVICE_COUNT: "100"          # 起手 100 个，跑通了再调大
+  INTERVAL_MIN: "1s"
+  INTERVAL_MAX: "5s"
+  FAILURE_RATE: "0.01"
+  METRICS_ADDR: ":9090"

@@ -16,3 +16,4 @@ resources:
 env:
   KAFKA_BROKERS: "pp-kafka-controller-headless:9092"
   MQTT_BROKER: "tcp://mosquitto:1883"
+  POSTGRES_DSN: "postgres://postgres:localdev@pp-postgresql:5432/platform?sslmode=disable"

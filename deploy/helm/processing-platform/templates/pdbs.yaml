@@ -1,0 +1,21 @@
+# PodDisruptionBudget for each worker tier.
+#
+# 作用：**voluntary disruption**（node drain / 节点升级 / kubectl drain）时，
+# K8s 保证 worker pod 数不低于 minAvailable。HPA 自己的 scale down 不受 PDB 限制。
+#
+# 为什么 minAvailable: 1：
+#   - 永远保证消费能力不为 0
+#   - HPA minReplicas 也是 1，PDB 跟它一致
+#   - 这是个软约束——PDB 只挡 voluntary，硬件挂掉 / node 突然死 K8s 不管 PDB
+{{- range $tier := list "realtime" "standard" "bulk" }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: worker-{{ $tier }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: worker-{{ $tier }}
+{{- end }}
